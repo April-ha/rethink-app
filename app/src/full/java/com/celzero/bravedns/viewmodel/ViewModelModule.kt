@@ -19,7 +19,7 @@ import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
 object ViewModelModule {
-    private val viewModelModule = module {
+    private val modelModules = module {
         viewModel { ConnectionTrackerViewModel(get()) }
         viewModel { DnsCryptEndpointViewModel(get()) }
         viewModel { DnsCryptRelayEndpointViewModel(get()) }
@@ -48,7 +48,10 @@ object ViewModelModule {
         viewModel { DomainConnectionsViewModel(get()) }
         viewModel { WgNwActivityViewModel(get()) }
         viewModel { EventsViewModel(get()) }
+        viewModel { PurchaseHistoryViewModel(get()) }
+        viewModel { ManagePurchaseViewModel() }
+        viewModel { ServerOrderHistoryViewModel(get()) }
     }
 
-    val modules = listOf(viewModelModule)
+    val modules = listOf(modelModules)
 }

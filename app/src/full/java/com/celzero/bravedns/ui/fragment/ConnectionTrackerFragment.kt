@@ -62,12 +62,13 @@ class ConnectionTrackerFragment :
     private val viewModel: ConnectionTrackerViewModel by viewModel()
 
     private var filterQuery: String = ""
-    private var filterCategories: MutableSet<String> = mutableSetOf()
+    private val filterCategories: MutableSet<String> = mutableSetOf()
     private var filterType: TopLevelFilter = TopLevelFilter.ALL
     private val connectionTrackerRepository by inject<ConnectionTrackerRepository>()
     private val persistentState by inject<PersistentState>()
 
     private var fromWireGuardScreen: Boolean = false
+    private var fromRpnScreen: Boolean = false
     private var fromUniversalFirewallScreen: Boolean = false
 
     companion object {
@@ -90,6 +91,7 @@ class ConnectionTrackerFragment :
             val query = arguments?.getString(Constants.SEARCH_QUERY) ?: ""
             fromUniversalFirewallScreen = query.contains(UniversalFirewallSettingsActivity.RULES_SEARCH_ID)
             fromWireGuardScreen = query.contains(NetworkLogsActivity.RULES_SEARCH_ID_WIREGUARD)
+            fromRpnScreen = query.contains(NetworkLogsActivity.RULES_SEARCH_ID_RPN)
             if (fromUniversalFirewallScreen) {
                 val rule = query.split(UniversalFirewallSettingsActivity.RULES_SEARCH_ID)[1]
                 filterCategories.add(rule)
@@ -98,6 +100,12 @@ class ConnectionTrackerFragment :
                 hideSearchLayout()
             } else if (fromWireGuardScreen) {
                 val rule = query.split(NetworkLogsActivity.RULES_SEARCH_ID_WIREGUARD)[1]
+                filterQuery = rule
+                filterType = TopLevelFilter.ALL
+                viewModel.setFilter(filterQuery, filterCategories, filterType)
+                hideSearchLayout()
+            } else if (fromRpnScreen) {
+                val rule = query.split(NetworkLogsActivity.RULES_SEARCH_ID_RPN)[1]
                 filterQuery = rule
                 filterType = TopLevelFilter.ALL
                 viewModel.setFilter(filterQuery, filterCategories, filterType)

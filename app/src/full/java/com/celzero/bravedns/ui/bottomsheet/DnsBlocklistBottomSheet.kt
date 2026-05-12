@@ -81,9 +81,9 @@ import java.util.Locale
 class DnsBlocklistBottomSheet : BottomSheetDialogFragment() {
     private var _binding: BottomSheetDnsLogBinding? = null
 
-    // This property is only valid between onCreateView and onDestroyView.
     private val b
-        get() = _binding!!
+        get() = checkNotNull(_binding)
+        { "Binding accessed outside of view lifecycle" }
 
     private var log: DnsLog? = null
 
@@ -161,7 +161,7 @@ class DnsBlocklistBottomSheet : BottomSheetDialogFragment() {
             b.dnsBlockedTarget.visibility = View.VISIBLE
         }
         if (Logger.LoggerLevel.fromId(persistentState.goLoggerLevel.toInt())
-                .isLessThan(Logger.LoggerLevel.DEBUG)
+                ?.isLessThan(Logger.LoggerLevel.DEBUG) == true
         ) {
             b.dnsMessage.text = "${log?.msg}; ${log?.proxyId}; ${log?.relayIP}"
         } else {
@@ -205,7 +205,7 @@ class DnsBlocklistBottomSheet : BottomSheetDialogFragment() {
 
         if (log.appName.isNotEmpty() && log.packageName.isNotEmpty()) {
             b.dnsAppNameHeader.visibility = View.VISIBLE
-            b.dnsAppName.text = log.appName
+            b.dnsAppName.text = requireContext().getString(R.string.two_argument_parenthesis, log.appName, log.uid.toString())
             b.dnsAppIcon.setImageDrawable(getIcon(requireContext(), log.packageName, log.appName))
             return
         }
@@ -225,13 +225,13 @@ class DnsBlocklistBottomSheet : BottomSheetDialogFragment() {
                 if (appCount >= 1) {
                     b.dnsAppName.text =
                         if (appCount >= 2) {
-                            getString(
+                            requireContext().getString(R.string.two_argument_parenthesis, getString(
                                 R.string.ctbs_app_other_apps,
                                 appNames[0],
                                 appCount.minus(1).toString()
-                            )
+                            ), log.uid.toString())
                         } else {
-                            appNames[0]
+                            requireContext().getString(R.string.two_argument_parenthesis, appNames[0], log.uid.toString())
                         }
                     if (pkgName == null) return@uiCtx
                     b.dnsAppIcon.setImageDrawable(

@@ -28,11 +28,10 @@ import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
+import com.celzero.bravedns.ui.BaseActivity
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
-import androidx.paging.PagingData
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.work.WorkInfo
@@ -43,6 +42,7 @@ import com.celzero.bravedns.adapter.ConsoleLogAdapter
 import com.celzero.bravedns.database.ConsoleLogRepository
 import com.celzero.bravedns.databinding.ActivityConsoleLogBinding
 import com.celzero.bravedns.net.go.GoVpnAdapter
+import com.celzero.bravedns.scheduler.BugReportZipper
 import com.celzero.bravedns.scheduler.WorkScheduler
 import com.celzero.bravedns.service.PersistentState
 import com.celzero.bravedns.util.Constants
@@ -65,7 +65,7 @@ import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
 import java.io.File
 
-class ConsoleLogActivity : AppCompatActivity(R.layout.activity_console_log), androidx.appcompat.widget.SearchView.OnQueryTextListener {
+class ConsoleLogActivity : BaseActivity(R.layout.activity_console_log), androidx.appcompat.widget.SearchView.OnQueryTextListener {
 
     private val b by viewBinding(ActivityConsoleLogBinding::bind)
     private var layoutManager: RecyclerView.LayoutManager? = null
@@ -80,6 +80,9 @@ class ConsoleLogActivity : AppCompatActivity(R.layout.activity_console_log), and
         private const val FILE_EXTENSION = ".zip"
         private const val QUERY_TEXT_DELAY: Long = 1000
     }
+
+    // Guard against rapid double-taps on share buttons while a job is in-flight
+    private var isShareInProgress = false
 
     private fun Context.isDarkThemeOn(): Boolean {
         return resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
@@ -146,7 +149,7 @@ class ConsoleLogActivity : AppCompatActivity(R.layout.activity_console_log), and
         }
         b.searchView.setOnQueryTextListener(this)
         val logLevel = Logger.uiLogLevel.toInt()
-        if (logLevel <= Logger.LoggerLevel.ERROR.id) {
+        if (logLevel >= Logger.LoggerLevel.ERROR.id) {
             showFilterDialog()
         }
     }
@@ -182,33 +185,13 @@ class ConsoleLogActivity : AppCompatActivity(R.layout.activity_console_log), and
 
     private fun observeLog() {
         viewModel.logs.observe(this) { pagingData ->
-            lifecycleScope.launch {
-                try {
-                    recyclerAdapter?.submitData(pagingData)
-                } catch (e: Exception) {
-                    Logger.e(LOG_TAG_UI, "err submitting data: ${e.message}")
-                    // Optionally recreate adapter if needed
-                    if (e is IndexOutOfBoundsException) {
-                        recreateAdapter()
-                    }
-                }
-            }
+            recyclerAdapter?.submitData(lifecycle, pagingData)
         }
     }
-
-    private fun recreateAdapter() {
-        try {
-            recyclerAdapter = ConsoleLogAdapter(this)
-            b.consoleLogList.adapter = recyclerAdapter
-            Logger.i(LOG_TAG_UI, "adapter recreated due to consistency error")
-        } catch (e: Exception) {
-            Logger.e(LOG_TAG_UI, "err; recreate adapter: ${e.message}")
-        }
-    }
-
     private fun setupClickListener() {
 
         b.consoleLogShare.setOnClickListener {
+            if (isShareInProgress) return@setOnClickListener
             val filePath = makeConsoleLogFile()
             if (filePath == null) {
                 showFileCreationErrorToast()
@@ -218,6 +201,7 @@ class ConsoleLogActivity : AppCompatActivity(R.layout.activity_console_log), and
         }
 
         b.fabShareLog.setOnClickListener {
+            if (isShareInProgress) return@setOnClickListener
             val filePath = makeConsoleLogFile()
             if (filePath == null) {
                 showFileCreationErrorToast()
@@ -227,9 +211,6 @@ class ConsoleLogActivity : AppCompatActivity(R.layout.activity_console_log), and
         }
 
         b.consoleLogDelete.setOnClickListener {
-            lifecycleScope.launch {
-                recyclerAdapter?.submitData(PagingData.empty())
-            }
             io {
                 Logger.i(LOG_TAG_BUG_REPORT, "deleting all console logs")
                 consoleLogRepository.deleteAllLogs()
@@ -292,7 +273,8 @@ class ConsoleLogActivity : AppCompatActivity(R.layout.activity_console_log), and
     }
 
     private fun handleShareLogs(filePath: String) {
-        if (WorkScheduler.isWorkRunning(this, WorkScheduler.CONSOLE_LOG_SAVE_JOB_TAG)) return
+        if (isShareInProgress) return
+        isShareInProgress = true
 
         workScheduler.scheduleConsoleLogSaveJob(filePath)
         showLogGenerationProgressUi()
@@ -307,6 +289,7 @@ class ConsoleLogActivity : AppCompatActivity(R.layout.activity_console_log), and
                 "WorkManager state: ${workInfo.state} for ${WorkScheduler.CONSOLE_LOG_SAVE_JOB_TAG}"
             )
             if (WorkInfo.State.SUCCEEDED == workInfo.state) {
+                isShareInProgress = false
                 onSuccess()
                 shareZipFileViaEmail(filePath)
                 workManager.pruneWork()
@@ -314,6 +297,7 @@ class ConsoleLogActivity : AppCompatActivity(R.layout.activity_console_log), and
                 WorkInfo.State.CANCELLED == workInfo.state ||
                 WorkInfo.State.FAILED == workInfo.state
             ) {
+                isShareInProgress = false
                 onFailure()
                 workManager.pruneWork()
                 workManager.cancelAllWorkByTag(WorkScheduler.CONSOLE_LOG_SAVE_JOB_TAG)
@@ -351,8 +335,35 @@ class ConsoleLogActivity : AppCompatActivity(R.layout.activity_console_log), and
     private fun shareZipFileViaEmail(filePath: String) {
         disableFrostTemporarily()
         val file = File(filePath)
-        // Get the URI of the file using FileProvider
-        val uri: Uri = FileProvider.getUriForFile(this, "${this.packageName}.provider", file)
+        if (!file.exists()) {
+            Logger.w(LOG_TAG_BUG_REPORT, "log file does not exist: $filePath")
+            showFileCreationErrorToast()
+            return
+        }
+
+        // Get the URI of the file using FileProvider.
+        val uri: Uri? = try {
+            FileProvider.getUriForFile(this, BugReportZipper.FILE_PROVIDER_NAME, file)
+        } catch (e: IllegalArgumentException) {
+            Logger.e(
+                LOG_TAG_BUG_REPORT,
+                "err(shareZip) FileProvider authority not found (${BugReportZipper.FILE_PROVIDER_NAME}): ${e.message}",
+                e
+            )
+            null
+        } catch (e: Exception) {
+            Logger.e(LOG_TAG_BUG_REPORT, "err(shareZip) getting file uri: ${e.message}", e)
+            null
+        }
+
+        if (uri == null) {
+            showToastUiCentered(
+                this,
+                getString(R.string.error_loading_log_file),
+                Toast.LENGTH_SHORT
+            )
+            return
+        }
 
         // Create the intent
         val intent =
@@ -366,7 +377,16 @@ class ConsoleLogActivity : AppCompatActivity(R.layout.activity_console_log), and
             }
 
         // start the email app
-        startActivity(Intent.createChooser(intent, "Send email..."))
+        try {
+            startActivity(Intent.createChooser(intent, "Send email..."))
+        } catch (e: Exception) {
+            Logger.e(LOG_TAG_BUG_REPORT, "err(shareZip) starting share intent: ${e.message}", e)
+            showToastUiCentered(
+                this,
+                getString(R.string.error_loading_log_file),
+                Toast.LENGTH_SHORT
+            )
+        }
     }
 
     private fun makeConsoleLogFile(): String? {
@@ -409,9 +429,6 @@ class ConsoleLogActivity : AppCompatActivity(R.layout.activity_console_log), and
         withContext(Dispatchers.Main) { f() }
     }
 
-    private fun ui(f: () -> Unit) {
-        lifecycleScope.launch(Dispatchers.Main) { f() }
-    }
 
     val searchQuery = MutableStateFlow("")
     @OptIn(FlowPreview::class)

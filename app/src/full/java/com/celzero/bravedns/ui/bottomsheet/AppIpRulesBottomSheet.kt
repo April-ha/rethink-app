@@ -58,9 +58,9 @@ import org.koin.android.ext.android.inject
 class AppIpRulesBottomSheet : BottomSheetDialogFragment(), WireguardListBtmSheet.WireguardDismissListener {
     private var _binding: BottomSheetAppConnectionsBinding? = null
 
-    // This property is only valid between onCreateView and onDestroyView.
     private val b
-        get() = _binding!!
+        get() = checkNotNull(_binding)
+        { "Binding accessed outside of view lifecycle" }
 
     private val persistentState by inject<PersistentState>()
     private val eventLogger by inject<EventLogger>()
@@ -275,7 +275,7 @@ class AppIpRulesBottomSheet : BottomSheetDialogFragment(), WireguardListBtmSheet
 
         b.chooseProxyRl.setOnClickListener {
             val ctx = requireContext()
-            var v: MutableList<WgConfigFilesImmutable?> = mutableListOf()
+            val v: MutableList<WgConfigFilesImmutable?> = mutableListOf()
             io {
                 v.add(null)
                 v.addAll(WireguardManager.getAllMappings())
@@ -291,7 +291,7 @@ class AppIpRulesBottomSheet : BottomSheetDialogFragment(), WireguardListBtmSheet
                     return@io
                 }
                 uiCtx {
-                    Logger.v(LOG_TAG_UI, "$TAG show wg list(${v.size}) for ${ci?.ipAddress ?: ""}")
+                    Logger.v(LOG_TAG_UI, "$TAG show wg list(${v.size}) for ${ci?.ipAddress.orEmpty()}")
                     showWgListBtmSheet(v)
                 }
             }

@@ -51,9 +51,10 @@ import com.celzero.bravedns.util.Constants
         RpnProxy::class,
         WgHopMap::class,
         SubscriptionStatus::class,
-        SubscriptionStateHistory::class
+        SubscriptionStateHistory::class,
+        CountryConfig::class
     ],
-    version = 27,
+    version = 30,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -66,7 +67,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         // setJournalMode() is added as part of issue #344
         // modified the journal mode from TRUNCATE to AUTOMATIC.
-        // The actual value will be TRUNCATE when the it is a low-RAM device.
+        // The actual value will be TRUNCATE if it is a low-RAM device.
         // Otherwise, WRITE_AHEAD_LOGGING will be used.
         // Ref:
         // https://developer.android.com/reference/android/arch/persistence/room/RoomDatabase.JournalMode#automatic
@@ -92,7 +93,7 @@ abstract class AppDatabase : RoomDatabase() {
                 .addMigrations(MIGRATION_15_16)
                 .addMigrations(MIGRATION_16_17)
                 .addMigrations(MIGRATION_17_18)
-                .addMigrations(migration1819(context))
+                .addMigrations(MIGRATION_18_19)
                 .addMigrations(MIGRATION_19_20)
                 .addMigrations(MIGRATION_20_21)
                 .addMigrations(MIGRATION_21_22)
@@ -101,6 +102,9 @@ abstract class AppDatabase : RoomDatabase() {
                 .addMigrations(MIGRATION_24_25)
                 .addMigrations(MIGRATION_25_26)
                 .addMigrations(MIGRATION_26_27)
+                .addMigrations(MIGRATION_27_28)
+                .addMigrations(MIGRATION_28_29)
+                .addMigrations(MIGRATION_29_30)
                 .build()
 
         private val roomCallback: Callback =
@@ -706,7 +710,7 @@ abstract class AppDatabase : RoomDatabase() {
                 }
             }
 
-        private fun migration1819(context: Context): Migration =
+        private val MIGRATION_18_19: Migration =
             object : Migration(18, 19) {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     with(db) {
@@ -1087,21 +1091,147 @@ abstract class AppDatabase : RoomDatabase() {
                     // insert new columns with default values (modifiedTs)
                     db.execSQL("ALTER TABLE WgConfigFiles ADD COLUMN modifiedTs INTEGER NOT NULL DEFAULT 0")
                     Logger.i(LOG_TAG_APP_DB, "MIGRATION_26_27: removed isLockdown column")
+                    db.execSQL(
+                        """
+                                           CREATE TABLE IF NOT EXISTS CountryConfig (
+                                               cc TEXT PRIMARY KEY NOT NULL,
+                                               catchAll INTEGER NOT NULL DEFAULT 0,
+                                               lockdown INTEGER NOT NULL DEFAULT 0,
+                                               mobileOnly INTEGER NOT NULL DEFAULT 0,
+                                               ssidBased INTEGER NOT NULL DEFAULT 0,
+                                               lastModified INTEGER NOT NULL DEFAULT 0,
+                                               enabled INTEGER NOT NULL DEFAULT 1,
+                                               priority INTEGER NOT NULL DEFAULT 0
+                                           )
+                                           """.trimIndent()
+                    )
+                    Logger.i(LOG_TAG_APP_DB, "MIGRATION_26_27: created CountryConfig table")
+                }
+            }
+
+        private val MIGRATION_27_28: Migration =
+            object : Migration(27, 28) {
+                override fun migrate(db: SupportSQLiteDatabase) {
                     // Add modifiedTs column to AppInfo table to track when firewall/proxy rules change
                     try {
                         db.execSQL("ALTER TABLE AppInfo ADD COLUMN modifiedTs INTEGER NOT NULL DEFAULT 0")
                         // Backfill all existing rows with 0 (already done by DEFAULT 0)
-                        Logger.i(LOG_TAG_APP_DB, "MIGRATION_26_27: added modifiedTs column to AppInfo")
+                        Logger.i(LOG_TAG_APP_DB, "MIGRATION_27_28: added modifiedTs column to AppInfo")
                     } catch (e: Exception) {
-                        Logger.e(LOG_TAG_APP_DB, "MIGRATION_26_27: modifiedTs column already exists, ignore", e)
+                        Logger.e(LOG_TAG_APP_DB, "MIGRATION_27_28: modifiedTs column already exists, ignore", e)
                     }
-                    // Add tempAllowEnabled and tempAllowExpiryTime columns to AppInfo table for temporary allow feature
+                }
+            }
+
+        private val MIGRATION_28_29: Migration =
+            object : Migration(28, 29) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+
                     try {
                         db.execSQL("ALTER TABLE AppInfo ADD COLUMN tempAllowEnabled INTEGER NOT NULL DEFAULT 0")
                         db.execSQL("ALTER TABLE AppInfo ADD COLUMN tempAllowExpiryTime INTEGER NOT NULL DEFAULT 0")
-                        Logger.i(LOG_TAG_APP_DB, "MIGRATION_26_27: added tempAllowEnabled and tempAllowExpiryTime columns to AppInfo")
+                        Logger.i(LOG_TAG_APP_DB, "MIGRATION_28_29: added tempAllowEnabled, tempAllowExpiryTime to AppInfo")
                     } catch (e: Exception) {
-                        Logger.e(LOG_TAG_APP_DB, "MIGRATION_26_27: temp allow columns already exist, ignore", e)
+                        Logger.e(LOG_TAG_APP_DB, "MIGRATION_28_29: temp allow columns already exist, ignore", e)
+                    }
+
+                    // Safety: drop RpnWinServers if it exists from any prior development build
+                    try {
+                        db.execSQL("DROP INDEX IF EXISTS index_RpnWinServers_countryCode")
+                        db.execSQL("DROP INDEX IF EXISTS index_RpnWinServers_isActive")
+                        db.execSQL("DROP TABLE IF EXISTS RpnWinServers")
+                    } catch (_: Exception) {
+                        // ignore
+                    }
+
+                    db.execSQL("DROP TABLE IF EXISTS CountryConfig")
+                    db.execSQL(
+                        """
+                        CREATE TABLE CountryConfig (
+                            id TEXT PRIMARY KEY NOT NULL,
+                            cc TEXT NOT NULL,
+                            name TEXT NOT NULL DEFAULT '',
+                            address TEXT NOT NULL DEFAULT '',
+                            city TEXT NOT NULL DEFAULT '',
+                            key TEXT NOT NULL DEFAULT '',
+                            load INTEGER NOT NULL DEFAULT 0,
+                            link INTEGER NOT NULL DEFAULT 0,
+                            count INTEGER NOT NULL DEFAULT 0,
+                            isActive INTEGER NOT NULL DEFAULT 1,
+                            catchAll INTEGER NOT NULL DEFAULT 0,
+                            lockdown INTEGER NOT NULL DEFAULT 0,
+                            mobileOnly INTEGER NOT NULL DEFAULT 0,
+                            ssidBased INTEGER NOT NULL DEFAULT 0,
+                            priority INTEGER NOT NULL DEFAULT 0,
+                            ssids TEXT NOT NULL DEFAULT '',
+                            lastModified INTEGER NOT NULL DEFAULT 0,
+                            isEnabled INTEGER NOT NULL DEFAULT 1,
+                            premium INTEGER NOT NULL DEFAULT 0
+                        )
+                        """.trimIndent()
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_CountryConfig_cc ON CountryConfig(cc)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_CountryConfig_isActive ON CountryConfig(isActive)")
+                    Logger.i(LOG_TAG_APP_DB, "MIGRATION_28_29: recreated CountryConfig with final schema")
+
+                    // [v32→v37] SubscriptionStatus: audit / billing columns
+                    // Each ALTER is guarded individually so a partial prior run cannot leave
+                    // the DB in an inconsistent state.
+                    try {
+                        db.execSQL("ALTER TABLE SubscriptionStatus ADD COLUMN previousProductId TEXT NOT NULL DEFAULT ''")
+                    } catch (_: Exception) {}
+                    try {
+                        db.execSQL("ALTER TABLE SubscriptionStatus ADD COLUMN previousPurchaseToken TEXT NOT NULL DEFAULT ''")
+                    } catch (_: Exception) {}
+                    try {
+                        db.execSQL("ALTER TABLE SubscriptionStatus ADD COLUMN replacedAt INTEGER NOT NULL DEFAULT 0")
+                    } catch (_: Exception) {}
+                    try {
+                        db.execSQL("ALTER TABLE SubscriptionStatus ADD COLUMN windowDays INTEGER NOT NULL DEFAULT 0")
+                    } catch (_: Exception) {}
+                    try {
+                        db.execSQL("ALTER TABLE SubscriptionStatus ADD COLUMN orderId TEXT NOT NULL DEFAULT ''")
+                    } catch (_: Exception) {}
+                    try {
+                        db.execSQL("ALTER TABLE SubscriptionStatus ADD COLUMN deviceId TEXT NOT NULL DEFAULT ''")
+                    } catch (_: Exception) {}
+                    db.execSQL(
+                        "UPDATE SubscriptionStatus SET deviceId = 'pip/identity.json' " +
+                        "WHERE deviceId != '' AND deviceId != 'pip/identity.json'"
+                    )
+                    Logger.i(LOG_TAG_APP_DB, "MIGRATION_28_29: updated SubscriptionStatus columns")
+
+                    // [v38→v39] WgConfigFiles: isLockdown column
+                    try {
+                        db.execSQL("ALTER TABLE WgConfigFiles ADD COLUMN isLockdown INTEGER NOT NULL DEFAULT 0")
+                        Logger.i(LOG_TAG_APP_DB, "MIGRATION_28_29: added isLockdown to WgConfigFiles")
+                    } catch (e: Exception) {
+                        Logger.e(LOG_TAG_APP_DB, "MIGRATION_28_29: isLockdown already exists in WgConfigFiles, ignore", e)
+                    }
+                }
+            }
+
+        private val MIGRATION_29_30: Migration =
+            object : Migration(29, 30) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    try {
+                        db.execSQL(
+                            "ALTER TABLE CountryConfig ADD COLUMN selectionCount INTEGER NOT NULL DEFAULT 0"
+                        )
+                        Logger.i(LOG_TAG_APP_DB, "MIGRATION_39_31: added selectionCount to CountryConfig")
+                    } catch (e: Exception) {
+                        Logger.e(LOG_TAG_APP_DB, "MIGRATION_39_31: selectionCount already exists, ignore", e)
+                    }
+                    try {
+                        db.execSQL(
+                            "ALTER TABLE CountryConfig ADD COLUMN isFavourite INTEGER NOT NULL DEFAULT 0"
+                        )
+                        db.execSQL(
+                            "CREATE INDEX IF NOT EXISTS index_CountryConfig_isFavourite ON CountryConfig(isFavourite)"
+                        )
+                        Logger.i(LOG_TAG_APP_DB, "MIGRATION_39_31: added isFavourite to CountryConfig")
+                    } catch (e: Exception) {
+                        Logger.e(LOG_TAG_APP_DB, "MIGRATION_39_31: isFavourite already exists, ignore", e)
                     }
                 }
             }
@@ -1175,9 +1305,13 @@ abstract class AppDatabase : RoomDatabase() {
 
     abstract fun subscriptionStateHistoryDao(): SubscriptionStateHistoryDao
 
+    abstract fun countryConfigDAO(): CountryConfigDAO
+
     fun appInfoRepository() = AppInfoRepository(appInfoDAO())
 
     fun dohEndpointRepository() = DoHEndpointRepository(dohEndpointsDAO())
+
+    fun countryConfigRepository() = CountryConfigRepository(countryConfigDAO())
 
     fun dnsCryptEndpointRepository() = DnsCryptEndpointRepository(dnsCryptEndpointDAO())
 

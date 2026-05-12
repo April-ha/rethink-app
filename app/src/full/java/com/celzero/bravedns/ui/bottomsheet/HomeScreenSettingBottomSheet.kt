@@ -31,6 +31,7 @@ import androidx.lifecycle.lifecycleScope
 import com.celzero.bravedns.R
 import com.celzero.bravedns.data.AppConfig
 import com.celzero.bravedns.databinding.BottomSheetHomeScreenBinding
+import com.celzero.bravedns.rpnproxy.RpnProxyManager
 import com.celzero.bravedns.service.PersistentState
 import com.celzero.bravedns.service.VpnController
 import com.celzero.bravedns.ui.activity.ProxySettingsActivity
@@ -42,6 +43,7 @@ import com.celzero.bravedns.util.UIUtils.htmlToSpannedText
 import com.celzero.bravedns.util.UIUtils.openVpnProfile
 import com.celzero.bravedns.util.Utilities.isAtleastQ
 import com.celzero.bravedns.util.useTransparentNoDimBackground
+import com.celzero.firestack.backend.Rpn
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -50,10 +52,9 @@ import org.koin.android.ext.android.inject
 class HomeScreenSettingBottomSheet : BottomSheetDialogFragment() {
     private var _binding: BottomSheetHomeScreenBinding? = null
 
-    // This property is only valid between onCreateView and
-    // onDestroyView.
     private val b
-        get() = _binding!!
+        get() = checkNotNull(_binding)
+        { "Binding accessed outside of view lifecycle" }
 
     private val appConfig by inject<AppConfig>()
     private val persistentState by inject<PersistentState>()
@@ -178,6 +179,8 @@ class HomeScreenSettingBottomSheet : BottomSheetDialogFragment() {
         b.bsHomeScreenVpnLockdownDesc.setOnClickListener {
             if (VpnController.isVpnLockdown()) {
                 openVpnProfile(requireContext())
+            } else if (RpnProxyManager.isRpnActive()) {
+                openProxySettings(SCREEN_PROXY)
             } else if (appConfig.isProxyEnabled()) {
                 // show proxy settings
                 if (appConfig.isWireGuardEnabled()) {

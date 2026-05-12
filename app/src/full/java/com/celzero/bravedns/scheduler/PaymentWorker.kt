@@ -21,7 +21,7 @@ import android.content.Context
 import android.os.SystemClock
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.celzero.bravedns.customdownloader.ITcpProxy
+import com.celzero.bravedns.customdownloader.IBillingServerApi
 import com.celzero.bravedns.customdownloader.RetrofitManager
 import com.celzero.bravedns.service.PersistentState
 import com.celzero.bravedns.service.TcpProxyHelper
@@ -87,12 +87,12 @@ class PaymentWorker(val context: Context, workerParameters: WorkerParameters) :
         var paymentStatus = TcpProxyHelper.PaymentStatus.INITIATED
         try {
             val retrofit =
-                RetrofitManager.getTcpProxyBaseBuilder(persistentState.routeRethinkInRethink)
+                RetrofitManager.getRpnBaseBuilder(persistentState.routeRethinkInRethink)
                     .addConverterFactory(GsonConverterFactory.create())
                     .build()
-            val retrofitInterface = retrofit.create(ITcpProxy::class.java)
-            // TODO: get refId from EncryptedFile
-            val response = retrofitInterface.checkForPaymentAcknowledgement(referenceId, purchaseToken)
+            val retrofitInterface = retrofit.create(IBillingServerApi::class.java)
+            // TODO: no need of this fn now
+            val response = retrofitInterface.acknowledgePurchase(referenceId, "","", purchaseToken)
             Logger.d(
                 Logger.LOG_IAB,
                 "getPaymentStatusFromServer: ${response?.headers()}, ${response?.message()}, ${response?.raw()?.request?.url}"

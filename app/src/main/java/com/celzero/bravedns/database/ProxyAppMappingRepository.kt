@@ -76,10 +76,22 @@ class ProxyAppMappingRepository(
     }
 
     suspend fun tombstoneApp(oldUid: Int, newUid: Int) {
-        try {
-            proxyApplicationMappingDAO.tombstoneApp(oldUid, newUid)
-        } catch (_: Exception) {
-            // catch the exception to avoid crash
-        }
+        proxyApplicationMappingDAO.tombstoneApp(oldUid, newUid)
+    }
+
+    suspend fun getProxiesForApp(uid: Int, packageName: String): List<ProxyApplicationMapping> {
+        return proxyApplicationMappingDAO.getProxiesForApp(uid, packageName)
+    }
+
+    suspend fun getProxyIdsForApp(uid: Int, packageName: String): List<String> {
+        return proxyApplicationMappingDAO.getProxyIdsForApp(uid, packageName)
+    }
+
+    suspend fun getAppsForProxy(proxyId: String): List<ProxyApplicationMapping> {
+        return proxyApplicationMappingDAO.getAppsForProxy(proxyId)
+    }
+
+    suspend fun deleteMapping(uid: Int, packageName: String, proxyId: String) {
+        proxyApplicationMappingDAO.deleteMapping(uid, packageName, proxyId)
     }
 }

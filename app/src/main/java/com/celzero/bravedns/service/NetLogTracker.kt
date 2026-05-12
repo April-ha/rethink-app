@@ -56,10 +56,10 @@ internal constructor(
 
     @Volatile private var scope: CoroutineScope? = null
 
-    private var dnsdb: DnsLogTracker = DnsLogTracker(dnsLogRepository, persistentState, context)
-    private var ipdb: IPTracker =
+    private val dnsdb: DnsLogTracker = DnsLogTracker(dnsLogRepository, persistentState, context)
+    private val ipdb: IPTracker =
         IPTracker(connectionTrackerRepository, rethinkLogRepository, context)
-    private var consoleLogDb: ConsoleLogManager = ConsoleLogManager(consoleLogRepository)
+    private val consoleLogDb: ConsoleLogManager = ConsoleLogManager(consoleLogRepository)
 
     private var dnsBatcher: NetLogBatcher<DnsLog, Nothing>? = null
     private var ipBatcher: NetLogBatcher<ConnectionTracker, ConnectionSummary>? = null
@@ -74,7 +74,7 @@ internal constructor(
 
     // a single thread to run sig and batch co-routines in;
     // to avoid use of mutex/semaphores over shared-state
-    // looper is never closed / cancelled and is always active
+    // looper is never closed / canceled and is always active
     private val looper = Daemons.make("netl")
 
     private val consoleLogLooper = Daemons.make("consl")

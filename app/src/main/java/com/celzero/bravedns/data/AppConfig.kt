@@ -71,14 +71,14 @@ internal constructor(
     private val dnsLogs: DnsLogRepository,
     private val eventLogger: EventLogger
 ) {
-    private var braveModeObserver: MutableLiveData<Int> = MutableLiveData()
+    private val braveModeObserver: MutableLiveData<Int> = MutableLiveData()
     private var pcapFilePath: String = ""
     private var customSocks5Endpoint: ProxyEndpoint? = null
     private var customHttpEndpoint: ProxyEndpoint? = null
     private var orbotEndpoint: ProxyEndpoint? = null
 
     companion object {
-        private var connectedDns: MutableLiveData<String> = MutableLiveData()
+        private val connectedDns: MutableLiveData<String> = MutableLiveData()
 
         private const val ORBOT_DNS = "Orbot"
 
@@ -96,7 +96,12 @@ internal constructor(
         // now connectedDnsName has the dns name and url, extract the dns name and update
         // csv is <dns-name,url>, url maybe empty
         val dnsName = persistentState.connectedDnsName.split(",").firstOrNull() ?: ""
-        connectedDns.postValue(dnsName)
+
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            connectedDns.value = dnsName
+        } else {
+            connectedDns.postValue(dnsName)
+        }
 
         // initialize pcapFilePath from persistent state
         pcapFilePath = persistentState.pcapFilePath
